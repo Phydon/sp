@@ -1,8 +1,10 @@
+// use aho_corasick::AhoCorasick; // TODO remove?
 use clap::{Arg, ArgAction, Command};
 use flexi_logger::{detailed_format, Duplicate, FileSpec, Logger};
 use log::error;
 use owo_colors::colored::*;
 use rayon::prelude::*;
+use regex::RegexSet;
 
 use std::{
     fs,
@@ -54,21 +56,25 @@ fn main() {
     } else if let Some(_) = matches.subcommand_matches("examples") {
         examples();
     } else {
-        if let Some(args) = matches
-            .get_many::<String>("pattern")
+        if let Some(patterns) = matches
+            .get_many::<String>("patterns")
             .map(|a| a.collect::<Vec<_>>())
         {
+            let re = RegexSet::new(patterns).unwrap();
+            // let literal = pattern;
+
             let pipe = read_pipe();
 
             if parallel_flag {
                 let lines = par_split_pipe_by_lines(pipe);
                 lines.into_par_iter().for_each(|line| {
-                    todo!();
+                    // todo!();
+                    println!("{line}");
                 })
             } else {
                 let lines = split_pipe_by_lines(pipe);
                 lines.into_iter().for_each(|line| {
-                    todo!();
+                    // todo!();
                 })
             }
         } else {
@@ -103,6 +109,33 @@ fn par_split_pipe_by_lines(pipe: String) -> Vec<String> {
         .collect::<Vec<_>>()
 }
 
+// TODO
+fn search_regex(patterns: Vec<String>, reg: RegexSet) {
+    todo!();
+}
+
+// TODO
+// fn highlight_pattern_in_line(line: &str, config: &Config) -> String {
+//     // find first byte of pattern in filename
+//     let pat_in_file = line.find(&config.pattern).unwrap_or_else(|| 9999999999);
+
+//     if pat_in_file == 9999999999 {
+//         // if no pattern found return just the filename
+//         return line.to_string();
+//     } else {
+//         let first_from_name = &line[..pat_in_file];
+//         let last_from_name = &line[(pat_in_file + config.pattern.len())..];
+//         // colourize the pattern in the filename
+//         let highlighted_pattern = config.pattern.truecolor(112, 110, 255).to_string();
+
+//         let mut result = String::from(first_from_name);
+//         result.push_str(&highlighted_pattern);
+//         result.push_str(last_from_name);
+
+//         result.to_string()
+//     }
+// }
+
 // build cli
 fn sp() -> Command {
     Command::new("sp")
@@ -123,14 +156,16 @@ fn sp() -> Command {
         .version("1.0.0")
         .author("Leann Phydon <leann.phydon@gmail.com>")
         .arg(
-            Arg::new("pattern")
-                .help("Enter the search pattern")
+            Arg::new("patterns")
+                .help("Enter the search patterns")
                 .long_help(format!(
                     "{}\n{}",
-                    "Enter the search pattern", "Treat as regex pattern by default",
+                    "Enter the search patterns", "Treat as regex patterns by default",
                 ))
+                // .trailing_var_arg(true) // TODO needed?
+                // .value_terminator(";") // TODO needed?
                 .action(ArgAction::Append)
-                .value_name("PATTERN"),
+                .value_name("PATTERNS"),
         )
         .arg(
             Arg::new("parallel")
