@@ -4,7 +4,7 @@ use flexi_logger::{detailed_format, Duplicate, FileSpec, Logger};
 use log::error;
 use owo_colors::colored::*;
 use rayon::prelude::*;
-use regex::RegexSet;
+use regex::Regex;
 
 use std::{
     fs,
@@ -56,11 +56,8 @@ fn main() {
     } else if let Some(_) = matches.subcommand_matches("examples") {
         examples();
     } else {
-        if let Some(patterns) = matches
-            .get_many::<String>("patterns")
-            .map(|a| a.collect::<Vec<_>>())
-        {
-            let re = RegexSet::new(patterns).unwrap();
+        if let Some(pattern) = matches.get_one::<String>("pattern") {
+            let re = Regex::new(pattern).unwrap();
             // let literal = pattern;
 
             let pipe = read_pipe();
@@ -68,13 +65,16 @@ fn main() {
             if parallel_flag {
                 let lines = par_split_pipe_by_lines(pipe);
                 lines.into_par_iter().for_each(|line| {
-                    // todo!();
-                    println!("{line}");
+                    let captures = search_regex(&line, re.clone());
+                    let high_line = highlight_pattern_in_line(line, captures);
+                    println!("{}", high_line);
                 })
             } else {
                 let lines = split_pipe_by_lines(pipe);
                 lines.into_iter().for_each(|line| {
-                    // todo!();
+                    let captures = search_regex(&line, re.clone());
+                    let high_line = highlight_pattern_in_line(line, captures);
+                    println!("{}", high_line);
                 })
             }
         } else {
@@ -109,32 +109,45 @@ fn par_split_pipe_by_lines(pipe: String) -> Vec<String> {
         .collect::<Vec<_>>()
 }
 
-// TODO
-fn search_regex(patterns: Vec<String>, reg: RegexSet) {
-    todo!();
+fn search_regex(hay: &str, reg: Regex) -> Vec<(String, usize, usize)> {
+    let mut captures = Vec::new();
+    let matches = reg.find_iter(hay);
+
+    for mat in matches {
+        // println!("{:?}", hay);
+        // println!("{:?}", mat.start());
+        // println!("{:?}", mat.end());
+        // println!("{:?}", mat.len());
+        // println!("{:?}", mat.range());
+        captures.push((mat.as_str().to_owned(), mat.start(), mat.end()));
+    }
+
+    captures
 }
 
-// TODO
-// fn highlight_pattern_in_line(line: &str, config: &Config) -> String {
-//     // find first byte of pattern in filename
-//     let pat_in_file = line.find(&config.pattern).unwrap_or_else(|| 9999999999);
+fn highlight_pattern_in_line(line: String, captures: Vec<(String, usize, usize)>) -> String {
+    if captures.is_empty() {
+        return line;
+    }
 
-//     if pat_in_file == 9999999999 {
-//         // if no pattern found return just the filename
-//         return line.to_string();
-//     } else {
-//         let first_from_name = &line[..pat_in_file];
-//         let last_from_name = &line[(pat_in_file + config.pattern.len())..];
-//         // colourize the pattern in the filename
-//         let highlighted_pattern = config.pattern.truecolor(112, 110, 255).to_string();
+    for cap in captures {
+        let pattern = cap.0;
+        let pat_start = cap.1;
+        let pat_end = cap.2;
 
-//         let mut result = String::from(first_from_name);
-//         result.push_str(&highlighted_pattern);
-//         result.push_str(last_from_name);
+        let first_till_pat = &line[..pat_start];
+        let high_pat = pattern.truecolor(112, 110, 255).to_string();
+        let end_from_pat = &line[pat_end..];
 
-//         result.to_string()
-//     }
-// }
+        let mut high_line = String::from(first_till_pat);
+        high_line.push_str(&high_pat);
+        high_line.push_str(end_from_pat);
+
+        return high_line;
+    }
+
+    "".to_string()
+}
 
 // build cli
 fn sp() -> Command {
@@ -156,16 +169,14 @@ fn sp() -> Command {
         .version("1.0.0")
         .author("Leann Phydon <leann.phydon@gmail.com>")
         .arg(
-            Arg::new("patterns")
-                .help("Enter the search patterns")
+            Arg::new("pattern")
+                .help("Enter the search pattern")
                 .long_help(format!(
                     "{}\n{}",
-                    "Enter the search patterns", "Treat as regex patterns by default",
+                    "Enter the search pattern", "Treat as regex pattern by default",
                 ))
-                // .trailing_var_arg(true) // TODO needed?
-                // .value_terminator(";") // TODO needed?
-                .action(ArgAction::Append)
-                .value_name("PATTERNS"),
+                .action(ArgAction::Set)
+                .value_name("PATTERN"),
         )
         .arg(
             Arg::new("parallel")
