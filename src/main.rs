@@ -130,6 +130,7 @@ fn highlight_pattern_in_line(line: String, captures: Vec<(String, usize, usize)>
         return line;
     }
 
+    // TODO handle multiple captures
     for cap in captures {
         let pattern = cap.0;
         let pat_start = cap.1;
