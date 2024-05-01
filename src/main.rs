@@ -157,6 +157,7 @@ fn highlight_pattern_in_line(
         if counter.eq(&cap_len) {
             let pat_till_end = &line[pat_end..];
             high_line.push_str(pat_till_end);
+            break;
         }
 
         current_position = pat_end;
