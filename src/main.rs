@@ -140,7 +140,7 @@ fn highlight_pattern_in_line(
     let mut high_line = String::new();
     // keep track of current position in current line to handle multiple captures
     let mut current_position = 0;
-    let mut counter = 0;
+    let mut counter = 1; // start at 1 because cap_len >= 1
     let cap_len = captures.len();
     for cap in captures {
         let pattern = cap.0;
@@ -157,7 +157,6 @@ fn highlight_pattern_in_line(
         if counter.eq(&cap_len) {
             let pat_till_end = &line[pat_end..];
             high_line.push_str(pat_till_end);
-            break;
         }
 
         current_position = pat_end;
@@ -184,7 +183,7 @@ fn sp() -> Command {
         ))
         .long_about(format!("{}", "Search in stdin",))
         // TODO update version
-        .version("1.0.0")
+        .version("1.0.1")
         .author("Leann Phydon <leann.phydon@gmail.com>")
         .arg(
             Arg::new("matches")
