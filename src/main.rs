@@ -1,4 +1,3 @@
-// use aho_corasick::AhoCorasick; // TODO remove?
 use clap::{Arg, ArgAction, Command};
 use flexi_logger::{detailed_format, Duplicate, FileSpec, Logger};
 use log::error;
@@ -44,6 +43,7 @@ fn main() {
     // handle arguments
     let matches = sp().get_matches();
     let parallel_flag = matches.get_flag("parallel");
+    let matches_flag = matches.get_flag("matches");
 
     if let Some(_) = matches.subcommand_matches("log") {
         if let Ok(logs) = show_log_file(&config_dir) {
@@ -66,15 +66,19 @@ fn main() {
                 let lines = par_split_pipe_by_lines(pipe);
                 lines.into_par_iter().for_each(|line| {
                     let captures = search_regex(&line, re.clone());
-                    let high_line = highlight_pattern_in_line(line, captures);
-                    println!("{}", high_line);
+                    if let Some(high_line) = highlight_pattern_in_line(line, captures, matches_flag)
+                    {
+                        println!("{}", high_line);
+                    }
                 })
             } else {
                 let lines = split_pipe_by_lines(pipe);
                 lines.into_iter().for_each(|line| {
                     let captures = search_regex(&line, re.clone());
-                    let high_line = highlight_pattern_in_line(line, captures);
-                    println!("{}", high_line);
+                    if let Some(high_line) = highlight_pattern_in_line(line, captures, matches_flag)
+                    {
+                        println!("{}", high_line);
+                    }
                 })
             }
         } else {
@@ -114,40 +118,53 @@ fn search_regex(hay: &str, reg: Regex) -> Vec<(String, usize, usize)> {
     let matches = reg.find_iter(hay);
 
     for mat in matches {
-        // println!("{:?}", hay);
-        // println!("{:?}", mat.start());
-        // println!("{:?}", mat.end());
-        // println!("{:?}", mat.len());
-        // println!("{:?}", mat.range());
         captures.push((mat.as_str().to_owned(), mat.start(), mat.end()));
     }
 
     captures
 }
 
-fn highlight_pattern_in_line(line: String, captures: Vec<(String, usize, usize)>) -> String {
+fn highlight_pattern_in_line(
+    line: String,
+    captures: Vec<(String, usize, usize)>,
+    matches_flag: bool,
+) -> Option<String> {
     if captures.is_empty() {
-        return line;
+        if matches_flag {
+            return None;
+        } else {
+            return Some(line);
+        }
     }
 
-    // TODO handle multiple captures
+    let mut high_line = String::new();
+    // keep track of current position in current line to handle multiple captures
+    let mut current_position = 0;
+    let mut counter = 0;
+    let cap_len = captures.len();
     for cap in captures {
         let pattern = cap.0;
         let pat_start = cap.1;
         let pat_end = cap.2;
 
-        let first_till_pat = &line[..pat_start];
+        let till_pat = &line[current_position..pat_start];
         let high_pat = pattern.truecolor(112, 110, 255).to_string();
-        let end_from_pat = &line[pat_end..];
 
-        let mut high_line = String::from(first_till_pat);
+        high_line.push_str(till_pat);
         high_line.push_str(&high_pat);
-        high_line.push_str(end_from_pat);
 
-        return high_line;
+        // no more captures -> add rest of the line to high_line
+        if counter.eq(&cap_len) {
+            let pat_till_end = &line[pat_end..];
+            high_line.push_str(pat_till_end);
+            break;
+        }
+
+        current_position = pat_end;
+        counter += 1;
     }
 
-    "".to_string()
+    return Some(high_line);
 }
 
 // build cli
@@ -169,6 +186,13 @@ fn sp() -> Command {
         // TODO update version
         .version("1.0.0")
         .author("Leann Phydon <leann.phydon@gmail.com>")
+        .arg(
+            Arg::new("matches")
+                .short('m')
+                .long("matches")
+                .help("Show only lines that contain at least one match")
+                .action(ArgAction::SetTrue),
+        )
         .arg(
             Arg::new("pattern")
                 .help("Enter the search pattern")
@@ -208,14 +232,23 @@ fn examples() {
     println!("\n{}\n----------", "Example 1".bold());
     println!(
         r###"
-todo
+- this highlights the word 'test' 
+
+$ echo "this is a test" | sp test
+
+this is a test
     "###
     );
 
     println!("\n{}\n----------", "Example 2".bold());
     println!(
         r###"
-todo
+- show only matching lines
+
+$ echo "first test" "second nothing" "third test" | sp test -m
+
+first test
+third test
     "###
     );
 }
@@ -260,6 +293,8 @@ fn show_log_file(config_dir: &PathBuf) -> io::Result<String> {
 
 #[cfg(test)]
 mod tests {
+    use std::str::FromStr;
+
     use super::*;
 
     #[test]
@@ -276,5 +311,24 @@ mod tests {
         let result = par_split_pipe_by_lines(pipe);
         let expected = vec!["This", "is", "a", "test"];
         assert!(result.par_iter().any(|x| expected.contains(&x.as_str())));
+    }
+
+    #[test]
+    fn search_regex_single_match_test() {
+        let pipe = "This is a test";
+        let re = Regex::from_str("test").unwrap();
+        let captures = search_regex(pipe, re);
+        let expected = vec![("test".to_string(), 10, 14)];
+        assert_eq!(captures, expected);
+    }
+
+    #[test]
+    fn search_regex_multi_match_test() {
+        let pipe = "This is a test, with a lot of testing results";
+        let re = Regex::from_str("test").unwrap();
+        let captures = search_regex(pipe, re);
+        let expected = vec![("test".to_string(), 10, 14), ("test".to_string(), 30, 34)];
+        assert!(captures.len() == 2);
+        assert_eq!(captures, expected);
     }
 }
