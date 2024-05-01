@@ -14,7 +14,7 @@
 
 - this highlights the word 'test'
 
-$ echo "this is a test" | sp test
+```$ echo "this is a test" | sp test```
 
 this is a test
 
@@ -23,10 +23,12 @@ this is a test
 
 - show only matching lines
 
-$ echo "first test" "second nothing" "third test" | sp test -m
+```$ echo "first test" "second nothing" "third test" | sp test -m```
 
 first test
+
 third test
+
 
 ## Usage
 
