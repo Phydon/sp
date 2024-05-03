@@ -181,12 +181,12 @@ fn sp() -> Command {
         .about("Search in stdin")
         .before_long_help(format!(
             "{}\n{}",
-            "XA".bold().truecolor(250, 0, 104),
+            "SP".bold().truecolor(250, 0, 104),
             "Leann Phydon <leann.phydon@gmail.com>".italic().dimmed()
         ))
         .long_about(format!("{}", "Search in stdin",))
         // TODO update version
-        .version("1.0.2")
+        .version("1.0.3")
         .author("Leann Phydon <leann.phydon@gmail.com>")
         .arg(
             Arg::new("matches")
