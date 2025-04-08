@@ -3,7 +3,7 @@ use flexi_logger::{detailed_format, Duplicate, FileSpec, Logger};
 use log::error;
 use owo_colors::colored::*;
 use rayon::prelude::*;
-use regex::Regex;
+use regex::{Match, Regex};
 
 use std::{
     fs,
@@ -20,25 +20,13 @@ fn main() {
     })
     .expect("Error setting Ctrl-C handler");
 
-    // get config dir
+    // initialize the logger
     let config_dir = check_create_config_dir().unwrap_or_else(|err| {
         error!("Unable to find or create a config directory: {err}");
         process::exit(1);
     });
 
-    // initialize the logger
-    let _logger = Logger::try_with_str("info") // log warn and error
-        .unwrap()
-        .format_for_files(detailed_format) // use timestamp for every log
-        .log_to_file(
-            FileSpec::default()
-                .directory(&config_dir)
-                .suppress_timestamp(),
-        ) // change directory for logs, no timestamps in the filename
-        .append() // use only one logfile
-        .duplicate_to_stderr(Duplicate::Info) // print infos, warnings and errors also to the console
-        .start()
-        .unwrap();
+    init_logger(&config_dir);
 
     // handle arguments
     let matches = sp().get_matches();
@@ -46,13 +34,7 @@ fn main() {
     let matches_flag = matches.get_flag("matches");
 
     if let Some(_) = matches.subcommand_matches("log") {
-        if let Ok(logs) = show_log_file(&config_dir) {
-            println!("{}", "Available logs:".bold().yellow());
-            println!("{}", logs);
-        } else {
-            error!("Unable to read logs");
-            process::exit(1);
-        }
+        show_logs(&config_dir);
     } else if let Some(_) = matches.subcommand_matches("examples") {
         examples();
     } else if let Some(_) = matches.subcommand_matches("syntax") {
@@ -60,7 +42,6 @@ fn main() {
     } else {
         if let Some(pattern) = matches.get_one::<String>("pattern") {
             let re = Regex::new(pattern).unwrap();
-            // let literal = pattern;
 
             let pipe = read_pipe();
 
@@ -68,8 +49,7 @@ fn main() {
                 let lines = par_split_pipe_by_lines(pipe);
                 lines.into_par_iter().for_each(|line| {
                     let captures = search_regex(&line, re.clone());
-                    if let Some(high_line) = highlight_pattern_in_line(line, captures, matches_flag)
-                    {
+                    if let Some(high_line) = highlight_capture(&line, &captures, matches_flag) {
                         println!("{}", high_line);
                     }
                 })
@@ -77,8 +57,7 @@ fn main() {
                 let lines = split_pipe_by_lines(pipe);
                 lines.into_iter().for_each(|line| {
                     let captures = search_regex(&line, re.clone());
-                    if let Some(high_line) = highlight_pattern_in_line(line, captures, matches_flag)
-                    {
+                    if let Some(high_line) = highlight_capture(&line, &captures, matches_flag) {
                         println!("{}", high_line);
                     }
                 })
@@ -115,58 +94,37 @@ fn par_split_pipe_by_lines(pipe: String) -> Vec<String> {
         .collect::<Vec<_>>()
 }
 
-fn search_regex(hay: &str, reg: Regex) -> Vec<(String, usize, usize)> {
-    let mut captures = Vec::new();
-    let matches = reg.find_iter(hay);
-
-    for mat in matches {
-        captures.push((mat.as_str().to_owned(), mat.start(), mat.end()));
-    }
+fn search_regex(hay: &str, reg: Regex) -> Vec<Match> {
+    let captures: Vec<_> = reg.find_iter(hay).collect();
 
     captures
 }
 
-fn highlight_pattern_in_line(
-    line: String,
-    captures: Vec<(String, usize, usize)>,
-    matches_flag: bool,
-) -> Option<String> {
+fn highlight_capture(line: &str, captures: &Vec<Match>, matches_flag: bool) -> Option<String> {
     if captures.is_empty() {
         if matches_flag {
             return None;
         } else {
-            return Some(line);
+            return Some(line.to_string());
         }
     }
 
-    let mut high_line = String::new();
-    // keep track of current position in current line to handle multiple captures
-    let mut current_position = 0;
-    let mut counter = 1; // start at 1 because cap_len >= 1
-    let cap_len = captures.len();
+    // pre-allocate enough memory for original line + estimated additional space for ANSI codes (est. each color adds ~20 bytes)
+    // this reduces the number of times the string's buffer needs to be reallocated as elements are added
+    let mut new = String::with_capacity(line.len() + captures.len() * 20);
+
+    let mut last_match = 0;
     for cap in captures {
-        let pattern = cap.0;
-        let pat_start = cap.1;
-        let pat_end = cap.2;
+        new.push_str(&line[last_match..cap.start()]);
 
-        let till_pat = &line[current_position..pat_start];
-        let high_pat = pattern.truecolor(112, 110, 255).to_string();
+        let pattern = cap.as_str().truecolor(112, 110, 255).to_string();
+        new.push_str(&pattern);
 
-        high_line.push_str(till_pat);
-        high_line.push_str(&high_pat);
-
-        // no more captures -> add rest of the line to high_line
-        if counter.eq(&cap_len) {
-            let pat_till_end = &line[pat_end..];
-            high_line.push_str(pat_till_end);
-            break;
-        }
-
-        current_position = pat_end;
-        counter += 1;
+        last_match = cap.end();
     }
+    new.push_str(&line[last_match..]);
 
-    return Some(high_line);
+    Some(new)
 }
 
 // build cli
@@ -186,7 +144,7 @@ fn sp() -> Command {
         ))
         .long_about(format!("{}", "Search in stdin",))
         // TODO update version
-        .version("1.0.3")
+        .version("1.0.4")
         .author("Leann Phydon <leann.phydon@gmail.com>")
         .arg(
             Arg::new("matches")
@@ -297,6 +255,13 @@ fn show_regex_syntax() {
 [a&&b]        An empty character class matching nothing        
         "###
     );
+    println!("\n{}", "Composites:".bold());
+    println!(
+        r###"
+xy    concatenation (x followed by y)
+x|y   alternation (x or y, prefer x)
+        "###
+    );
     println!("\n{}", "Repetitions:".bold());
     println!(
         r###"
@@ -329,7 +294,7 @@ $               the end of a haystack (or end-of-line with multi-line mode)
 \b{{end-half}}    half of a Unicode end-of-word boundary (\W|\z on the right)        
         "###
     );
-    println!("\n{}", "Grouping and flags:".bold());
+    println!("\n{}", "Grouping:".bold());
     println!(
         r###"
 (exp)          numbered capture group (indexed by opening parenthesis)
@@ -383,7 +348,7 @@ x     verbose mode, ignores whitespace and allow line comments (starting with `#
 \D, \S, \W      negated Perl character class        
         "###
     );
-    println!("\n{}", "Perl character classes:".bold());
+    println!("\n{}", "Perl character classes (unicode friendly):".bold());
     println!(
         r###"
 \d     digit (\p{{Nd}})
@@ -433,6 +398,21 @@ fn check_create_config_dir() -> io::Result<PathBuf> {
     Ok(new_dir)
 }
 
+fn init_logger(config_dir: &PathBuf) {
+    let _logger = Logger::try_with_str("info") // log info, warn and error
+        .unwrap()
+        .format_for_files(detailed_format) // use timestamp for every log
+        .log_to_file(
+            FileSpec::default()
+                .directory(&config_dir)
+                .suppress_timestamp(),
+        ) // change directory for logs, no timestamps in the filename
+        .append() // use only one logfile
+        .duplicate_to_stderr(Duplicate::Info) // print infos, warnings and errors also to the console
+        .start()
+        .unwrap();
+}
+
 fn show_log_file(config_dir: &PathBuf) -> io::Result<String> {
     let log_path = Path::new(&config_dir).join("sp.log");
     return match log_path.try_exists()? {
@@ -453,10 +433,18 @@ fn show_log_file(config_dir: &PathBuf) -> io::Result<String> {
     };
 }
 
+fn show_logs(config_dir: &PathBuf) {
+    if let Ok(logs) = show_log_file(&config_dir) {
+        println!("{}", "Available logs:".bold().yellow());
+        println!("{}", logs);
+    } else {
+        error!("Unable to read logs");
+        process::exit(1);
+    }
+}
+
 #[cfg(test)]
 mod tests {
-    use std::str::FromStr;
-
     use super::*;
 
     #[test]
@@ -473,24 +461,5 @@ mod tests {
         let result = par_split_pipe_by_lines(pipe);
         let expected = vec!["This", "is", "a", "test"];
         assert!(result.par_iter().any(|x| expected.contains(&x.as_str())));
-    }
-
-    #[test]
-    fn search_regex_single_match_test() {
-        let pipe = "This is a test";
-        let re = Regex::from_str("test").unwrap();
-        let captures = search_regex(pipe, re);
-        let expected = vec![("test".to_string(), 10, 14)];
-        assert_eq!(captures, expected);
-    }
-
-    #[test]
-    fn search_regex_multi_match_test() {
-        let pipe = "This is a test, with a lot of testing results";
-        let re = Regex::from_str("test").unwrap();
-        let captures = search_regex(pipe, re);
-        let expected = vec![("test".to_string(), 10, 14), ("test".to_string(), 30, 34)];
-        assert!(captures.len() == 2);
-        assert_eq!(captures, expected);
     }
 }
